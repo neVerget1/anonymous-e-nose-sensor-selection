@@ -1,97 +1,184 @@
 # Experimental Settings
 
-This file provides supplementary experimental settings for the submitted paper on compact electronic nose sensor selection. The purpose is to provide additional details that cannot be fully included in the short paper due to space limitations.
+This file provides supplementary experimental settings for the submitted short paper on compact electronic nose sensor selection. The purpose of this document is to provide additional details that cannot be fully included in the paper due to space limitations.
 
 ## 1. Task Definition
 
-The task is compact sensor subset selection for electronic nose multivariate time series. Given a full sensor array, the goal is to select a smaller subset of sensors while preserving the full-array classification performance.
+This work studies compact sensor subset selection for electronic nose multivariate time series.
 
-The study focuses on sensor selection rather than designing a stronger downstream classifier.
+Given an electronic nose dataset with a full sensor array, the goal is to select a smaller subset of sensors while preserving the classification performance of the full sensor array.
 
-## 2. Datasets
+The focus of this work is not to design a stronger downstream classifier. Instead, the main question is:
 
-We evaluate the method on five electronic nose datasets:
+> How many sensors are sufficient to preserve full-sensor classification performance?
 
-| Short Name     | Full Dataset Name                                   | Number of Sensors |
-| -------------- | --------------------------------------------------- | ----------------: |
-| Low-conc.      | Gas sensor array low-concentration                  |                10 |
-| Dynamic        | Gas sensor array under dynamic gas mixtures         |                16 |
-| Open-sampling  | Gas sensor arrays in open sampling settings         |                72 |
-| Gas10          | 10-class industrial pollution gas detection dataset |                15 |
-| Chinese Liquor | Chinese liquor E-nose dataset                       |                10 |
+MOMENT-R3S addresses this problem by ranking sensors according to task relevance, class separability, single-sensor utility, and inter-sensor redundancy, and then selecting a compact subset under a performance retention constraint.
+
+## 2. Dataset Summary
+
+We evaluate MOMENT-R3S on five electronic nose datasets with different sensor scales and application scenarios.
+
+| Short Name     | Full Dataset Name                                   | Number of Sensors | Scenario                                             |
+| -------------- | --------------------------------------------------- | ----------------: | ---------------------------------------------------- |
+| Low-conc.      | Gas sensor array low-concentration                  |                10 | Low-concentration gas classification                 |
+| Dynamic        | Gas sensor array under dynamic gas mixtures         |                16 | Dynamic gas mixture classification                   |
+| Open-sampling  | Gas sensor arrays in open sampling settings         |                72 | High-dimensional open-sampling E-nose classification |
+| Gas10          | 10-class industrial pollution gas detection dataset |                15 | Multi-class industrial pollution gas detection       |
+| Chinese Liquor | Chinese liquor E-nose dataset                       |                10 | Chinese liquor identification                        |
+
+The short names above are used consistently in the paper, tables, and supplementary materials.
 
 ## 3. Evaluation Protocol
 
-All experiments follow a five-fold evaluation protocol. For model training, we use six random seeds:
+All experiments follow a five-fold evaluation protocol.
+
+For model training, we use six random seeds:
 
 ```text
 40, 41, 42, 43, 44, 45
 ```
 
-The reported results are averaged across folds and seeds.
+The reported results are averaged across folds and training seeds unless otherwise specified.
 
-To avoid validation leakage, sensor ranking and subset selection are performed within the training side of each split. The held-out test fold is used only for final evaluation.
+For each split, the sensor ranking and subset selection process is performed only on the training side of the split. The held-out fold is used only for final evaluation. This design avoids validation leakage between sensor selection and final test evaluation.
 
 ## 4. Downstream Classifier
 
-The default downstream classifier is ResNet1D. It is used to evaluate both the full sensor array and the selected sensor subsets.
+The default downstream classifier is ResNet1D.
 
-Additional classifier sensitivity experiments are conducted with TCN and InceptionTime on Gas10.
+ResNet1D is used to evaluate both the full sensor array and the selected sensor subsets. This keeps the comparison focused on sensor subset quality rather than classifier design.
 
-## 5. MOMENT-R3S Selection Pipeline
+Additional classifier sensitivity experiments are conducted on Gas10 using:
 
-MOMENT-R3S uses a pre-trained time-series representation model to obtain sensor-wise representations. The MOMENT parameters are not updated during sensor selection.
+* TCN;
+* InceptionTime;
+* ResNet1D.
 
-Each sensor is scored by jointly considering:
+These experiments examine whether the selected sensor subset remains useful under different downstream classifier architectures.
 
-1. task relevance;
-2. class separability based on pairwise class centroid distance;
-3. single-sensor utility;
-4. prediction-level redundancy.
+## 5. MOMENT-R3S Overview
 
-A redundancy-aware greedy ranking is then used to produce an ordered sensor list. The final compact subset is determined by a performance retention constraint.
+MOMENT-R3S is a representation-level sensor selection framework for electronic nose multivariate time series.
 
-## 6. Retention-Constrained Auto-k Setting
+The pipeline contains four main stages:
 
-For the main results, MOMENT-R3S automatically determines the selected sensor budget.
+1. sensor-wise representation extraction;
+2. multi-criteria sensor scoring;
+3. redundancy-aware sensor ranking;
+4. retention-constrained subset selection.
 
-The selected budget is defined as the smallest top-k prefix whose validation performance satisfies the retention constraint relative to the full-sensor performance.
+A pre-trained MOMENT encoder is used to extract time-series representations. The MOMENT parameters are not updated during sensor selection.
 
-The retention metric is computed as:
+The sensor scores are computed from multiple perspectives:
+
+* task relevance;
+* class separability;
+* single-sensor utility;
+* prediction-level redundancy.
+
+The final sensor ranking is generated by a redundancy-aware greedy procedure. The final selected subset is the smallest top-k prefix that satisfies the performance retention constraint.
+
+## 6. Sensor-wise Representation Extraction
+
+For each dataset, the multivariate electronic nose signal is represented as a multi-sensor time series.
+
+MOMENT-R3S extracts sensor-wise representations using a pre-trained time-series foundation model. The representation extraction step is used as a feature generation process rather than an end-to-end fine-tuning process.
+
+Mean pooling is used to aggregate representations because it is parameter-free and stable for small electronic nose datasets. This avoids introducing additional trainable aggregation modules during sensor selection.
+
+## 7. Multi-criteria Sensor Scoring
+
+MOMENT-R3S ranks sensors by jointly considering multiple criteria.
+
+### 7.1 Task Relevance
+
+Task relevance measures how useful each sensor representation is for the downstream classification task.
+
+A lightweight classifier is used with sensor-level gating. The learned gate weights are applied by multiplying each sensor representation with the corresponding gate value before the gated representations are fed into the classifier.
+
+Sensors with higher task relevance are expected to contribute more strongly to classification.
+
+### 7.2 Class Separability
+
+Class separability measures whether the representation of a sensor can distinguish different classes.
+
+For each sensor, class centroids are computed in the representation space. Pairwise centroid distances are then used to estimate how separable the classes are under that sensor.
+
+Sensors with larger class separability scores are expected to provide stronger discriminative information.
+
+### 7.3 Single-sensor Utility
+
+Single-sensor utility evaluates the classification ability of each sensor when used individually.
+
+For each sensor, a single-sensor classifier is trained and evaluated on the training-side validation split. The resulting Macro-F1 score is used as a single-sensor utility estimate.
+
+This criterion helps identify sensors that are individually informative.
+
+### 7.4 Prediction-level Redundancy
+
+Prediction-level redundancy measures whether different sensors produce similar prediction behavior.
+
+For each sensor, single-sensor prediction outputs are collected. Inter-sensor redundancy is then estimated from the similarity between prediction outputs.
+
+The redundancy-aware ranking step discourages selecting sensors that are highly redundant with sensors already selected.
+
+## 8. Retention-constrained Auto-k Selection
+
+The main results use a retention-constrained auto-k setting.
+
+Instead of manually fixing the number of selected sensors, MOMENT-R3S automatically determines the selected sensor budget for each dataset.
+
+Let the ordered sensor ranking be:
+
+```text
+A_1, A_2, ..., A_k
+```
+
+where `A_k` denotes the top-k selected sensor prefix.
+
+The final selected budget is the smallest k such that the selected subset performance satisfies the retention constraint relative to the full-sensor performance.
+
+The retention score is defined as:
 
 ```text
 Retention = Selected Macro-F1 / Full Macro-F1
 ```
 
-The performance drop is computed as:
+The performance drop is defined as:
 
 ```text
 Drop = Full Macro-F1 - Selected Macro-F1
 ```
 
-The sensor reduction ratio is computed as:
+The sensor reduction ratio is defined as:
 
 ```text
 Reduction = 1 - (#Selected Sensors / #Total Sensors)
 ```
 
-## 7. Fixed-Budget Baseline Comparison
+A fixed retention threshold is used across datasets to avoid dataset-specific tuning.
 
-For controlled comparison with baseline sensor selection methods, we use a fixed-budget setting. In this setting, all methods select the same number of sensors for each dataset.
+## 9. Fixed-budget Baseline Comparison
+
+In addition to auto-k selection, we also conduct fixed-budget baseline comparisons.
+
+The purpose of fixed-budget comparison is to evaluate the ranking quality of different sensor selection methods under the same selected sensor budget.
+
+In this setting, MOMENT-R3S does not use auto-k. Instead, it selects the same number of sensors as the compared baselines.
 
 The fixed-budget comparison is conducted on three representative datasets:
 
-| Dataset        | Fixed Budget |
-| -------------- | -----------: |
-| Dynamic        |         8/16 |
-| Gas10          |         9/15 |
-| Chinese Liquor |         6/10 |
+| Dataset        | Full Sensor Number | Fixed Selected Budget |
+| -------------- | -----------------: | --------------------: |
+| Dynamic        |                 16 |                     8 |
+| Gas10          |                 15 |                     9 |
+| Chinese Liquor |                 10 |                     6 |
 
-This setting is used to compare ranking quality under the same selected sensor budget.
+The remaining two datasets, Low-conc. and Open-sampling, are reported in the main auto-k results. They are used to examine MOMENT-R3S under low-concentration small-sample and high-dimensional open-sampling settings, respectively.
 
-## 8. Baselines
+## 10. Baseline Methods
 
-The following baseline methods are compared under the fixed-budget setting:
+We compare MOMENT-R3S with the following sensor/channel selection baselines:
 
 * TSelect;
 * ECP;
@@ -99,9 +186,15 @@ The following baseline methods are compared under the fixed-budget setting:
 * mutual information;
 * mRMR.
 
-All methods are evaluated under the same downstream classifier, fold split, and training-seed protocol.
+All methods are evaluated under the same downstream classifier, fold split, selected sensor budget, and training-seed protocol in the fixed-budget comparison.
 
-## 9. Main Auto-k Results
+Full Sensors is used as the no-selection reference.
+
+All-Random is used only in the ablation study as a replacement of the proposed R3S ranking strategy. It is not used as a main fixed-budget baseline.
+
+## 11. Main Auto-k Results
+
+The main results evaluate whether MOMENT-R3S can automatically select a compact sensor subset while preserving full-sensor Macro-F1 performance.
 
 | Dataset        | #Sensors | Reduction | Full Macro-F1 | Selected Macro-F1 |   Drop | Retention |
 | -------------- | -------: | --------: | ------------: | ----------------: | -----: | --------: |
@@ -111,6 +204,133 @@ All methods are evaluated under the same downstream classifier, fold split, and 
 | Gas10          |     9/15 |     40.0% |        0.9872 |            0.9758 | 0.0114 |    0.9885 |
 | Chinese Liquor |     6/10 |     40.0% |        0.9986 |            0.9915 | 0.0071 |    0.9929 |
 
-## 10. Notes for Double-Anonymous Review
+Across the five datasets, MOMENT-R3S reduces 40.0%--54.0% of sensors while preserving 95.61%--99.29% of full-sensor Macro-F1 performance.
 
-This repository is prepared for double-anonymous review. It does not include author names, affiliations, email addresses, personal paths, or institution-specific information.
+The selected subsets remain close to the corresponding full-sensor ResNet1D performance. The Macro-F1 drop ranges from 0.0071 to 0.0373.
+
+## 12. Fixed-budget Baseline Comparison Results
+
+The fixed-budget comparison evaluates ranking quality under the same number of selected sensors.
+
+### 12.1 Dynamic
+
+All methods select 8 out of 16 sensors.
+
+| Method     | #Sensors | Macro-F1 |   Drop | Retention |
+| ---------- | -------: | -------: | -----: | --------: |
+| Full       |    16/16 |   0.9373 | 0.0000 |    1.0000 |
+| ECP        |     8/16 |   0.8843 | 0.0530 |    0.9435 |
+| MI         |     8/16 |   0.8841 | 0.0532 |    0.9432 |
+| TSelect    |     8/16 |   0.8757 | 0.0616 |    0.9343 |
+| ECS        |     8/16 |   0.8638 | 0.0735 |    0.9216 |
+| mRMR       |     8/16 |   0.8542 | 0.0831 |    0.9113 |
+| MOMENT-R3S |     8/16 |   0.9242 | 0.0131 |    0.9860 |
+
+### 12.2 Gas10
+
+All methods select 9 out of 15 sensors.
+
+| Method     | #Sensors | Macro-F1 |   Drop | Retention |
+| ---------- | -------: | -------: | -----: | --------: |
+| Full       |    15/15 |   0.9872 | 0.0000 |    1.0000 |
+| ECP        |     9/15 |   0.9512 | 0.0360 |    0.9635 |
+| TSelect    |     9/15 |   0.9496 | 0.0376 |    0.9619 |
+| ECS        |     9/15 |   0.9312 | 0.0560 |    0.9433 |
+| MI         |     9/15 |   0.9052 | 0.0820 |    0.9169 |
+| mRMR       |     9/15 |   0.9008 | 0.0864 |    0.9125 |
+| MOMENT-R3S |     9/15 |   0.9758 | 0.0114 |    0.9885 |
+
+### 12.3 Chinese Liquor
+
+All methods select 6 out of 10 sensors.
+
+| Method     | #Sensors | Macro-F1 |   Drop | Retention |
+| ---------- | -------: | -------: | -----: | --------: |
+| Full       |    10/10 |   0.9986 | 0.0000 |    1.0000 |
+| ECS        |     6/10 |   0.9858 | 0.0128 |    0.9872 |
+| MI         |     6/10 |   0.9797 | 0.0189 |    0.9811 |
+| ECP        |     6/10 |   0.9795 | 0.0191 |    0.9809 |
+| mRMR       |     6/10 |   0.9783 | 0.0203 |    0.9797 |
+| TSelect    |     6/10 |   0.9733 | 0.0253 |    0.9747 |
+| MOMENT-R3S |     6/10 |   0.9915 | 0.0071 |    0.9929 |
+
+Under the same selected sensor budgets, MOMENT-R3S consistently achieves the highest selected-subset Macro-F1 and the smallest performance drop.
+
+## 13. Ablation and Classifier Sensitivity
+
+Ablation and downstream classifier sensitivity experiments are conducted on Gas10 under the fixed-budget setting.
+
+Full Sensors is used as the no-selection reference. All selected-subset variants use the same sensor budget.
+
+### 13.1 Representation and Selection Replacement
+
+| Variant      | Classifier | Accuracy | Macro-F1 |
+| ------------ | ---------- | -------: | -------: |
+| Full Sensors | ResNet1D   |   0.9873 |   0.9872 |
+| Chronos-R3S  | ResNet1D   |   0.9384 |   0.9512 |
+| TimeFM-R3S   | ResNet1D   |   0.9390 |   0.9496 |
+| All-Random   | ResNet1D   |   0.8375 |   0.7776 |
+| MOMENT-R3S   | ResNet1D   |   0.9759 |   0.9758 |
+
+Replacing MOMENT representations with Chronos or TimeFM decreases the Macro-F1 from 0.9758 to 0.9512 and 0.9496, respectively.
+
+Replacing the R3S ranking strategy with all-random sensor selection further reduces the Macro-F1 to 0.7776.
+
+These results indicate that the final selected subset quality does not come from the reduced sensor budget alone. Both the MOMENT representation space and the R3S ranking strategy contribute to the final subset quality.
+
+### 13.2 Downstream Classifier Sensitivity
+
+| Variant    | Classifier    | Accuracy | Macro-F1 |
+| ---------- | ------------- | -------: | -------: |
+| MOMENT-R3S | TCN           |   0.9069 |   0.9035 |
+| MOMENT-R3S | InceptionTime |   0.9612 |   0.9611 |
+| MOMENT-R3S | ResNet1D      |   0.9759 |   0.9758 |
+
+Although the absolute performance varies across classifier architectures, the selected sensor subset still provides effective downstream classification performance.
+
+This suggests that the selected sensors are not exclusively tied to a single downstream classifier. More complete full-sensor comparisons across classifiers can be further studied in future work.
+
+## 14. Notes on Data Leakage Prevention
+
+To avoid leakage, we follow these principles:
+
+1. The held-out test fold is not used for sensor ranking.
+2. Sensor ranking is generated using only the training side of each split.
+3. Auto-k selection is performed within the training-side validation procedure.
+4. The final selected subset is evaluated on the held-out fold.
+5. All compared methods use the same fold split and training-seed protocol.
+
+This protocol ensures that the final reported performance reflects the generalization ability of the selected sensor subsets.
+
+## 15. Notes on Auto-k and Fixed-budget Settings
+
+The auto-k and fixed-budget settings answer different questions.
+
+The auto-k setting asks:
+
+> How many sensors are sufficient to preserve full-sensor performance?
+
+The fixed-budget setting asks:
+
+> Under the same selected sensor budget, which method gives a better sensor ranking?
+
+Therefore, the main results and baseline comparison are reported separately.
+
+In the main auto-k experiment, MOMENT-R3S determines the selected sensor budget automatically.
+
+In the fixed-budget comparison, all methods use the same selected sensor budget for each dataset.
+
+## 16. Double-anonymous Review Statement
+
+This repository is prepared for double-anonymous review.
+
+It does not include:
+
+* author names;
+* affiliations;
+* email addresses;
+* personal file paths;
+* institution-specific information;
+* original non-anonymous repository links.
+
+At this stage, the repository provides supplementary experimental settings and result summaries. Code and additional materials may be added after further anonymization and cleanup.
